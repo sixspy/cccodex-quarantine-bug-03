@@ -19,8 +19,6 @@ from app.services import review as review_svc
 from app.services import rework as rework_svc
 from app.services import settings as settings_svc
 from app.services import rework_run as rework_run_svc
-from app.services import rework_run_cutover as rework_run_cutover_svc
-from app.services import rework_run_dualwrite as rework_run_dual_svc
 from app.services import sources as sources_svc
 from app.services.errors import ServiceError
 
@@ -311,35 +309,21 @@ def create_app():
 
         def rework_run_dash(request):
             _require(request)
-            return _json(rework_run_cutover_svc.board())
+            return _json(rework_run_svc.dashboard())
 
-        def rework_run_commit(request):
+        def rework_run_start(request):
             _require(request)
             body = _read_json(request)
-            return _json(rework_run_svc.commit_action(body))
+            job_id = int(body.get("job_id") or 0)
+            if not job_id:
+                raise ServiceError("缺少回炉单号，无法开跑")
+            return _json(rework_run_svc.start_run(job_id))
 
-        def rework_run_half(request):
-            _require(request)
-            return _json(rework_run_svc.reconcile_display())
-
-        def rework_run_snap(request):
-            _require(request)
-            return _json(rework_run_svc.snapshot())
-
-        def rework_run_cutover(request):
+        # 清洗入库入口：闸门与吞件防护都在服务层，这里只做接线。
+        def capture_ingest(request):
             _require(request)
             body = _read_json(request)
-            return _json(
-                rework_run_cutover_svc.append_cutover(
-                    int(body.get("ref_id") or 0),
-                    str(body.get("note") or "开跑钉定"),
-                )
-            )
-
-        def rework_run_dual(request):
-            _require(request)
-            body = _read_json(request)
-            return _json(rework_run_dual_svc.apply_dualwrite(str(body.get("note") or "开跑钉定")))
+            return _json(captures_svc.ingest_item(int(body.get("item_id") or 0)))
 
         def audits_list(request):
             _require(request)
@@ -380,11 +364,8 @@ def create_app():
         config.add_route("rule_apply", "/api/rules/apply")
         config.add_route("audits", "/api/audits")
         config.add_route("rework_run_dash", "/api/rework_run/dash")
-        config.add_route("rework_run_commit", "/api/rework_run/commit")
-        config.add_route("rework_run_half", "/api/rework_run/half")
-        config.add_route("rework_run_snap", "/api/rework_run/snap")
-        config.add_route("rework_run_cutover", "/api/rework_run/cutover")
-        config.add_route("rework_run_dual", "/api/rework_run/dual")
+        config.add_route("rework_run_start", "/api/rework_run/start")
+        config.add_route("capture_ingest", "/api/captures/ingest")
 
 
         config.add_view(root, route_name="root")
@@ -424,11 +405,8 @@ def create_app():
         config.add_view(wrap(rule_apply), route_name="rule_apply", request_method="POST")
         config.add_view(wrap(audits_list), route_name="audits", request_method="GET")
         config.add_view(wrap(rework_run_dash), route_name="rework_run_dash", request_method="GET")
-        config.add_view(wrap(rework_run_commit), route_name="rework_run_commit", request_method="POST")
-        config.add_view(wrap(rework_run_half), route_name="rework_run_half", request_method="POST")
-        config.add_view(wrap(rework_run_snap), route_name="rework_run_snap", request_method="GET")
-        config.add_view(wrap(rework_run_cutover), route_name="rework_run_cutover", request_method="POST")
-        config.add_view(wrap(rework_run_dual), route_name="rework_run_dual", request_method="POST")
+        config.add_view(wrap(rework_run_start), route_name="rework_run_start", request_method="POST")
+        config.add_view(wrap(capture_ingest), route_name="capture_ingest", request_method="POST")
 
 
         return config.make_wsgi_app()

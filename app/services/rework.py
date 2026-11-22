@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from app.db import get_db
 from app.services import audit as audit_svc
+from app.services import rework_run as rework_run_svc
 from app.services import settings as settings_svc
 from app.services.errors import ServiceError
 
@@ -10,10 +11,11 @@ def list_jobs(db_path: str | None = None) -> list[dict]:
     with get_db(db_path) as conn:
         rows = conn.execute(
             """
-            SELECT j.*, i.item_key, r.reason, b.bin_code
+            SELECT j.*, i.item_key, i.batch_id, cb.batch_code, r.reason, b.bin_code
             FROM rework_jobs j
             JOIN quarantine_rows r ON r.id=j.row_id
             JOIN capture_items i ON i.id=r.item_id
+            JOIN capture_batches cb ON cb.id=i.batch_id
             JOIN quarantine_bins b ON b.id=r.bin_id
             ORDER BY j.id DESC
             """
@@ -31,8 +33,10 @@ def run_job(job_id: int, succeed: bool = True, db_path: str | None = None) -> di
         max_attempt = int(settings_svc.get_value("rework_max_attempt", "3", db_path) or "3")
         if job["attempt"] > max_attempt:
             raise ServiceError("已超过回炉最大次数")
-        from app.services.rework_run import commit_action
-        commit_action({"job_id": job_id}, db_path)
+    # 开跑一次落定：写账册、锁指纹、切读轨；已落定的回炉单复用原落点，
+    # 失败重试不会二次钉点，也不会踩掉先到者的落点。
+    rework_run_svc.record_landing(job_id, db_path)
+    with get_db(db_path) as conn:
         conn.execute(
             """
             UPDATE rework_jobs SET status='执行中', started_at=datetime('now')

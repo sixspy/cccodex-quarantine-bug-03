@@ -1,13 +1,22 @@
 import { api } from '../api.js';
+import { navigate } from '../nav.js';
 
 export async function renderBins(el) {
-  const bins = await api('/api/bins');
-  const rows = await api('/api/rows');
+  const [bins, rows, run] = await Promise.all([
+    api('/api/bins'),
+    api('/api/rows'),
+    api('/api/rework_run/dash'),
+  ]);
   el.innerHTML = `
     <div class="card">
-      <h2>隔离舱</h2> <span class="chip" data-thick="rework_run">执行中</span>
+      <div class="row">
+        <h2>隔离舱</h2>
+        <span class="chip ${run.chip === run.ok_chip ? 'ok' : 'bad'}" title="开跑芯片">开跑 ${run.chip}</span>
+        <span class="chip ${run.remainder ? 'bad' : 'ok'}" title="回炉中余数">回炉中余数 ${run.remainder}</span>
+        <button class="ghost" id="toPolicies" title="前往入舱规则">策略页</button>
+      </div>
       <table>
-        <thead><tr><th>舱号</th><th>标题</th><th>状态</th><th>占用/容量</th><th>待复核</th></tr></thead>
+        <thead><tr><th>舱号</th><th>标题</th><th>状态</th><th>占用/容量</th><th>待复核</th><th>回炉中</th><th>策略</th></tr></thead>
         <tbody>
           ${(bins.items || []).map((b) => `
             <tr>
@@ -16,6 +25,8 @@ export async function renderBins(el) {
               <td><span class="chip">${b.status}</span></td>
               <td>${b.row_count}/${b.capacity}</td>
               <td>${b.pending_count}</td>
+              <td>${b.rework_count || 0}</td>
+              <td><button class="ghost" data-policy="${b.bin_code}">策略页</button></td>
             </tr>`).join('')}
         </tbody>
       </table>
@@ -36,4 +47,9 @@ export async function renderBins(el) {
         </tbody>
       </table>
     </div>`;
+  const toPolicy = () => navigate('policies');
+  el.querySelector('#toPolicies').onclick = toPolicy;
+  el.querySelectorAll('[data-policy]').forEach((btn) => {
+    btn.onclick = toPolicy;
+  });
 }

@@ -1,12 +1,24 @@
 import { api } from '../api.js';
+import { navigate } from '../nav.js';
 
 export async function renderCaptures(el) {
-  const data = await api('/api/batches');
-  const bins = await api('/api/bins');
+  const [data, bins, run] = await Promise.all([
+    api('/api/batches'),
+    api('/api/bins'),
+    api('/api/rework_run/dash'),
+  ]);
   const openBin = (bins.items || []).find((b) => b.status === '开放');
   el.innerHTML = `
     <div class="card">
-      <h2><span class="chip" data-thick="rework_run">执行中</span> 抓取批次</h2>
+      <h2>抓取批次</h2>
+      <div class="row">
+        <span class="chip ${run.chip === run.ok_chip ? 'ok' : 'bad'}" id="runChip"
+              title="开跑芯片">开跑 ${run.chip}</span>
+        <span class="chip ${run.remainder ? 'bad' : 'ok'}" id="reworkRemainder"
+              title="回炉中余数">回炉中余数 ${run.remainder}</span>
+        <span class="chip ${run.gate_allows ? 'ok' : 'bad'}" id="ingestGate"
+              title="清洗入库闸门">入库闸门 ${run.gate_allows ? '开' : '关'}</span>
+      </div>
       <div class="row">
         <input id="src" placeholder="来源名" />
         <input id="note" placeholder="备注" />
@@ -27,11 +39,13 @@ export async function renderCaptures(el) {
                 <button data-open="${b.id}">详情</button>
                 <button data-close="${b.id}">关闭</button>
                 ${openBin ? `<button data-auto="${b.id}">坏件入舱</button>` : ''}
+                ${openBin ? `<button data-ingest="${b.id}">清洗入库</button>` : ''}
               </td>
             </tr>`).join('')}
         </tbody>
       </table>
       <div id="detail" class="grid" style="margin-top:12px"></div>
+      <div id="ingestMsg" class="muted"></div>
     </div>`;
   el.querySelector('#create').onclick = async () => {
     await api('/api/batches', {
@@ -59,6 +73,31 @@ export async function renderCaptures(el) {
       await renderCaptures(el);
     };
   });
+  el.querySelectorAll('[data-ingest]').forEach((btn) => {
+    btn.onclick = async () => {
+      const msg = el.querySelector('#ingestMsg');
+      msg.textContent = '';
+      try {
+        const d = await api(`/api/batches/${btn.dataset.ingest}`);
+        const good = (d.items || []).find((i) => i.quality === '合格' && i.status === '待检');
+        if (!good) {
+          msg.textContent = '该批没有待入库的合格件';
+          return;
+        }
+        await api('/api/captures/ingest', {
+          method: 'POST',
+          body: JSON.stringify({ item_id: good.id }),
+        });
+        msg.textContent = `已清洗入库：${good.item_key}`;
+        await renderCaptures(el);
+        el.querySelector('#ingestMsg').textContent = `已清洗入库：${good.item_key}`;
+      } catch (e) {
+        msg.textContent = `入库被拒：${e.message}`;
+      }
+    };
+  });
+  el.querySelector('#runChip').onclick = () => navigate('rework');
+  el.querySelector('#reworkRemainder').onclick = () => navigate('rework');
   el.querySelectorAll('[data-open]').forEach((btn) => {
     btn.onclick = async () => {
       const d = await api(`/api/batches/${btn.dataset.open}`);

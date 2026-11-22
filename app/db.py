@@ -127,6 +127,24 @@ CREATE TABLE IF NOT EXISTS meta (
   key TEXT PRIMARY KEY,
   value TEXT NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS rework_run_ledger (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  row_id INTEGER NOT NULL UNIQUE REFERENCES quarantine_rows(id),
+  job_id INTEGER NOT NULL,
+  job_code TEXT NOT NULL DEFAULT '',
+  item_key TEXT NOT NULL,
+  fingerprint TEXT NOT NULL,
+  settled_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS ingest_ledger (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  item_id INTEGER NOT NULL UNIQUE REFERENCES capture_items(id),
+  item_key TEXT NOT NULL DEFAULT '',
+  fingerprint TEXT NOT NULL DEFAULT '',
+  ingested_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
 """
 
 
@@ -144,7 +162,7 @@ def ensure_db() -> Path:
 def get_db(db_path: str | Path | None = None):
     path = Path(db_path) if db_path else Config.DATABASE_PATH
     path.parent.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(path)
+    conn = sqlite3.connect(path, timeout=30)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys=ON")
     try:

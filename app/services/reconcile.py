@@ -3,7 +3,6 @@ from __future__ import annotations
 from app.db import get_db
 from app.services import audit as audit_svc
 from app.services import settings as settings_svc
-from app.services.errors import ServiceError
 
 
 def list_reports(db_path: str | None = None) -> list[dict]:
@@ -23,6 +22,7 @@ def run_reconcile(db_path: str | None = None) -> dict:
         released = conn.execute(
             "SELECT COUNT(*) AS c FROM quarantine_rows WHERE status='已放行'"
         ).fetchone()["c"]
+        # 回炉中余数与开跑芯片同源，避免两处各算一套。
         reworking = conn.execute(
             "SELECT COUNT(*) AS c FROM quarantine_rows WHERE status='回炉中'"
         ).fetchone()["c"]
@@ -61,7 +61,7 @@ def run_reconcile(db_path: str | None = None) -> dict:
 
 
 def dashboard(db_path: str | None = None) -> dict:
-    from app.services.rework_run_audit import audit_summary as _rework_run_audit
+    from app.services import rework_run as rework_run_svc
     with get_db(db_path) as conn:
         return {
             "batches": conn.execute("SELECT COUNT(*) AS c FROM capture_batches").fetchone()["c"],
@@ -81,5 +81,6 @@ def dashboard(db_path: str | None = None) -> dict:
                 "SELECT COUNT(*) AS c FROM policy_rules WHERE enabled=1"
             ).fetchone()["c"],
             "audits": conn.execute("SELECT COUNT(*) AS c FROM audit_events").fetchone()["c"],
-            "rework_run_audit": _rework_run_audit(db_path),
+            "rework_remainder": rework_run_svc.remainder(db_path),
+            "rework_run": rework_run_svc.dashboard(db_path),
         }

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import hashlib
+
 from app.db import get_db
 from app.services import audit as audit_svc
 from app.services.errors import ServiceError
@@ -92,6 +94,47 @@ def add_item(
         row = conn.execute("SELECT * FROM capture_items WHERE id=?", (item_id,)).fetchone()
     audit_svc.write_event("追加条目", "capture_item", item_id, item_key, db_path=db_path)
     return dict(row)
+
+
+def _ingest_fingerprint(item: dict) -> str:
+    raw = f"{item['id']}|{item['item_key']}|{item['batch_id']}"
+    return hashlib.sha256(raw.encode("utf-8")).hexdigest()
+
+
+def ingest_item(item_id: int, db_path: str | None = None) -> dict:
+    """清洗入库：回炉件在清空前一律拒绝吞入，开跑闸门不齐同样拒收。"""
+    from app.services import rework_run as rework_run_svc
+
+    with get_db(db_path) as conn:
+        item = conn.execute(
+            "SELECT * FROM capture_items WHERE id=?", (item_id,)
+        ).fetchone()
+        if not item:
+            raise ServiceError("条目不存在", 404)
+        rework_row = conn.execute(
+            "SELECT id FROM quarantine_rows WHERE item_id=? AND status='回炉中'",
+            (item_id,),
+        ).fetchone()
+    if rework_row or item["status"] == "回炉中":
+        raise ServiceError("条目仍在回炉中，清洗入库拒吞", 409)
+
+    # 闸门不齐不得先写台账：先判定，再落账。
+    rework_run_svc.require_gate(db_path)
+
+    with get_db(db_path) as conn:
+        conn.execute(
+            """
+            INSERT INTO ingest_ledger(item_id, item_key, fingerprint)
+            VALUES (?, ?, ?)
+            ON CONFLICT(item_id) DO NOTHING
+            """,
+            (item_id, item["item_key"], _ingest_fingerprint(item)),
+        )
+        out = conn.execute(
+            "SELECT * FROM ingest_ledger WHERE item_id=?", (item_id,)
+        ).fetchone()
+    audit_svc.write_event("清洗入库", "capture_item", item_id, item["item_key"], db_path=db_path)
+    return dict(out)
 
 
 def close_batch(batch_id: int, db_path: str | None = None) -> dict:

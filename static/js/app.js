@@ -44,6 +44,9 @@ async function go(name) {
 document.querySelectorAll('button.nav').forEach((b) => {
   b.onclick = () => go(b.dataset.page);
 });
+window.addEventListener('app:navigate', (e) => {
+  if (pages[e.detail]) go(e.detail);
+});
 document.getElementById('logoutBtn').onclick = async () => {
   await api('/api/logout', { method: 'POST' });
   location.href = '/login';

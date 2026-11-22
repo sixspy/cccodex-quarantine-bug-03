@@ -1,7 +1,21 @@
 import { api } from '../api.js';
 
 export async function renderSettings(el) {
-  const data = await api('/api/settings');
+  const [data, run] = await Promise.all([
+    api('/api/settings'),
+    api('/api/rework_run/dash').catch(() => null),
+  ]);
+  const gateText = run
+    ? [
+        `开跑芯片 ${run.chip}`,
+        `回炉中余数 ${run.remainder}`,
+        `开跑落点 ${run.landing ? run.landing.length : 0} 行`,
+        `读轨 ${run.active_read}`,
+        `指纹 ${run.cutover_fp ? run.cutover_fp.slice(0, 12) + '…' : '空'}`,
+        `拒回刷 ${run.reject_refresh ? '是' : '否'}`,
+        `入库闸门 ${run.gate_allows ? '开' : '关'}`,
+      ].join(' · ')
+    : '开跑钉定暂不可读';
   el.innerHTML = `
     <div class="card">
       <h2>台参数</h2>
@@ -17,6 +31,11 @@ export async function renderSettings(el) {
             </tr>`).join('')}
         </tbody>
       </table>
+    </div>
+    <div class="card">
+      <h3>开跑钉定口径</h3>
+      <p class="muted">只读：开跑由回炉队列逐单落定，参数不在此处改判。</p>
+      <p class="muted" id="runReadout">${gateText}</p>
     </div>`;
   el.querySelectorAll('[data-save]').forEach((btn) => {
     btn.onclick = async () => {
@@ -28,40 +47,4 @@ export async function renderSettings(el) {
       await renderSettings(el);
     };
   });
-
-  try {
-    const dash = await api('/api/rework_run/dash');
-    el.innerHTML += `<div class="card" style="margin-top:1rem">
-      <h3>开跑钉定</h3>
-      <span class="chip">${dash.chip}</span>
-      <p class="muted">读轨 ${dash.active_read} · 切流指纹 ${dash.cutover_fp || '空'} · 拒回刷 ${dash.reject_refresh} · 归档 ${dash.archive_count} · 新旗 ${dash.live_flag || '空'} · 对齐差 ${dash.panel_pack_mismatch}</p>
-      <div class="row">
-        <button id="go_rework_run" type="button">落台</button>
-        <button id="half_rework_run" type="button">半修对齐</button>
-        <button id="cut_rework_run" type="button">切流账册</button>
-        <button id="dual_rework_run" type="button">双写两轨</button>
-      </div>
-    </div>`;
-    const go = el.querySelector('#go_rework_run');
-    if (go) go.onclick = async () => {
-      await api('/api/rework_run/commit', { method:'POST', body: JSON.stringify({ref:1}) });
-      await renderSettings(el);
-    };
-    const half = el.querySelector('#half_rework_run');
-    if (half) half.onclick = async () => {
-      await api('/api/rework_run/half', { method:'POST', body:'{}' });
-      await renderSettings(el);
-    };
-    const cut = el.querySelector('#cut_rework_run');
-    if (cut) cut.onclick = async () => {
-      await api('/api/rework_run/cutover', { method:'POST', body: JSON.stringify({ref_id:1, note:'回炉开跑'}) });
-      await renderSettings(el);
-    };
-    const dual = el.querySelector('#dual_rework_run');
-    if (dual) dual.onclick = async () => {
-      await api('/api/rework_run/dual', { method:'POST', body: JSON.stringify({note:'回炉开跑'}) });
-      await renderSettings(el);
-    };
-  } catch (e) { /* optional surface */ }
-
 }
